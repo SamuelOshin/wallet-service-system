@@ -8,15 +8,13 @@ Endpoints:
 - DELETE /keys/{key_id}: Revoke API key
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Path, status
+from fastapi import APIRouter, Depends, Path, status
 from sqlalchemy.orm import Session
 
 from app.api.core.database import get_db
 from app.api.models.user import APIKey, User
 from app.api.schemas.api_key import (
     APIKeyCreateRequest,
-    APIKeyListItem,
-    APIKeyResponse,
     APIKeyRolloverRequest,
 )
 from app.api.services.api_key_service import APIKeyService
@@ -32,7 +30,9 @@ from app.api.routes.docs.api_keys_docs import (
 router = APIRouter(prefix="/keys", tags=["API Keys"])
 
 
-@router.post("/create", status_code=status.HTTP_201_CREATED, responses=create_api_key_responses)
+@router.post(
+    "/create", status_code=status.HTTP_201_CREATED, responses=create_api_key_responses
+)
 async def create_api_key(
     request: APIKeyCreateRequest,
     auth: tuple[User, APIKey | None] = Depends(get_current_user),
@@ -52,26 +52,7 @@ async def create_api_key(
     Raises:
         HTTPException: 400 if maximum keys reached or invalid expiry format.
 
-    Examples:
-        >>> # Request:
-        >>> POST /keys/create
-        >>> {
-        >>>   "name": "trading-bot",
-        >>>   "permissions": ["read", "deposit"],
-        >>>   "expiry": "1M"
-        >>> }
-        >>> # Response:
-        >>> {
-        >>>   "status": "SUCCESS",
-        >>>   "status_code": 201,
-        >>>   "message": "API key created successfully",
-        >>>   "data": {
-        >>>     "api_key": "sk_live_abc123...",
-        >>>     "name": "trading-bot",
-        >>>     "permissions": ["read", "deposit"],
-        >>>     "expires_at": "2025-02-09T12:00:00Z"
-        >>>   }
-        >>> }
+
 
     Notes:
         - API key is shown only once.
@@ -131,26 +112,6 @@ async def rollover_api_key(
     Raises:
         HTTPException: 400 if key not found, not expired, or unauthorized.
 
-    Examples:
-        >>> # Request:
-        >>> POST /keys/rollover
-        >>> {
-        >>>   "expired_key_id": 5,
-        >>>   "expiry": "1M"
-        >>> }
-        >>> # Response:
-        >>> {
-        >>>   "status": "SUCCESS",
-        >>>   "status_code": 201,
-        >>>   "message": "API key rolled over successfully",
-        >>>   "data": {
-        >>>     "api_key": "sk_live_xyz789...",
-        >>>     "name": "trading-bot",
-        >>>     "permissions": ["read", "deposit"],
-        >>>     "expires_at": "2025-02-09T12:00:00Z"
-        >>>   }
-        >>> }
-
     Notes:
         - Original key must be expired or revoked.
         - New key inherits same permissions and name.
@@ -203,31 +164,6 @@ async def list_api_keys(
     Returns:
         JSONResponse: Success response with list of API keys.
 
-    Examples:
-        >>> # Request: GET /keys
-        >>> # Response:
-        >>> {
-        >>>   "status": "SUCCESS",
-        >>>   "status_code": 200,
-        >>>   "message": "API keys retrieved successfully",
-        >>>   "data": {
-        >>>     "keys": [
-        >>>       {
-        >>>         "id": 1,
-        >>>         "name": "trading-bot",
-        >>>         "permissions": ["read", "deposit"],
-        >>>         "expires_at": "2025-02-09T12:00:00Z",
-        >>>         "is_revoked": false,
-        >>>         "created_at": "2025-01-09T12:00:00Z"
-        >>>       }
-        >>>     ],
-        >>>     "total": 1
-        >>>   }
-        >>> }
-
-    Notes:
-        - Does not show actual API key values.
-        - Shows all keys (active, expired, and revoked).
     """
     user, _ = auth
 
@@ -272,15 +208,6 @@ async def revoke_api_key(
     Raises:
         HTTPException: 404 if key not found or unauthorized.
 
-    Examples:
-        >>> # Request: DELETE /keys/5
-        >>> # Response:
-        >>> {
-        >>>   "status": "SUCCESS",
-        >>>   "status_code": 200,
-        >>>   "message": "API key revoked successfully",
-        >>>   "data": {}
-        >>> }
 
     Notes:
         - Revoked keys cannot be used for authentication.

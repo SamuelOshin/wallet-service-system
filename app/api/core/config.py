@@ -6,7 +6,6 @@ including database, Google OAuth, Paystack, JWT, and API key settings.
 """
 
 from functools import lru_cache
-from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -39,13 +38,15 @@ class Settings(BaseSettings):
         'Wallet Service'
     """
 
-    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", case_sensitive=True, extra="ignore"
+    )
 
     # App
     APP_NAME: str = "Wallet Service"
     DEBUG: bool = False
     API_V1_PREFIX: str = "/api/v1"
-    APP_PORT: int = 8000
+    APP_PORT: int = 7001
     # Database
     DATABASE_URL: str
 

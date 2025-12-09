@@ -10,7 +10,6 @@ This module defines all SQLAlchemy ORM models:
 
 import secrets
 from datetime import datetime, timezone
-from typing import List
 
 from sqlalchemy import (
     JSON,
@@ -56,8 +55,12 @@ class User(Base, TimestampMixin):
     name = Column(String, nullable=False)
 
     # Relationships
-    wallet = relationship("Wallet", back_populates="user", uselist=False, cascade="all, delete-orphan")
-    api_keys = relationship("APIKey", back_populates="user", cascade="all, delete-orphan")
+    wallet = relationship(
+        "Wallet", back_populates="user", uselist=False, cascade="all, delete-orphan"
+    )
+    api_keys = relationship(
+        "APIKey", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Wallet(Base, TimestampMixin):
@@ -81,13 +84,17 @@ class Wallet(Base, TimestampMixin):
     __tablename__ = "wallets"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False
+    )
     wallet_number = Column(String(13), unique=True, nullable=False, index=True)
     balance = Column(Numeric(15, 2), default=0.00, nullable=False)
 
     # Relationships
     user = relationship("User", back_populates="wallet")
-    transactions = relationship("Transaction", back_populates="wallet", cascade="all, delete-orphan")
+    transactions = relationship(
+        "Transaction", back_populates="wallet", cascade="all, delete-orphan"
+    )
 
     @staticmethod
     def generate_wallet_number() -> str:
@@ -132,11 +139,18 @@ class Transaction(Base, TimestampMixin):
     __tablename__ = "transactions"
 
     id = Column(Integer, primary_key=True, index=True)
-    wallet_id = Column(Integer, ForeignKey("wallets.id", ondelete="CASCADE"), nullable=False)
-    type = Column(Enum("deposit", "transfer_in", "transfer_out", name="transaction_type"), nullable=False)
+    wallet_id = Column(
+        Integer, ForeignKey("wallets.id", ondelete="CASCADE"), nullable=False
+    )
+    type = Column(
+        Enum("deposit", "transfer_in", "transfer_out", name="transaction_type"),
+        nullable=False,
+    )
     amount = Column(Numeric(15, 2), nullable=False)
     reference = Column(String, unique=True, nullable=False, index=True)
-    status = Column(Enum("pending", "success", "failed", name="transaction_status"), nullable=False)
+    status = Column(
+        Enum("pending", "success", "failed", name="transaction_status"), nullable=False
+    )
     extra_data = Column(JSON, default=dict)
 
     # Relationships
@@ -175,7 +189,9 @@ class APIKey(Base, TimestampMixin):
     __tablename__ = "api_keys"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
     key_hash = Column(String, unique=True, nullable=False, index=True)
     name = Column(String, nullable=False)
     permissions = Column(JSON, nullable=False)  # ["deposit", "transfer", "read"]
@@ -221,3 +237,34 @@ class APIKey(Base, TimestampMixin):
             >>>     pass
         """
         return permission in self.permissions
+
+
+class IdempotencyKey(Base, TimestampMixin):
+    """
+    Model for storing used idempotency keys to prevent duplicate operations.
+
+    Attributes:
+        id (int): Primary key.
+        key (str): The idempotency key (unique).
+        operation (str): Type of operation ('transfer', 'deposit', etc.).
+        user_id (int): User who initiated the operation.
+
+    Examples:
+        >>> key = IdempotencyKey(key="uuid-123", operation="transfer", user_id=1)
+        >>> db.add(key)
+        >>> db.commit()
+    """
+
+    __tablename__ = "idempotency_keys"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    key = Column(String(255), nullable=False, unique=True, index=True)
+    operation = Column(String(50), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    # Relationship
+    user = relationship("User", backref="idempotency_keys")
+
+    __table_args__ = (
+        Index("ix_idempotency_keys_key_operation", "key", "operation"),
+    )

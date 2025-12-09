@@ -37,15 +37,19 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
         'eyJhbGciOiJIUzI1NiIs'
     """
     to_encode = data.copy()
-    
+
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    
+        expire = datetime.now(timezone.utc) + timedelta(
+            minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
+        )
+
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
-    
+    encoded_jwt = jwt.encode(
+        to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM
+    )
+
     return encoded_jwt
 
 
@@ -68,7 +72,9 @@ def verify_access_token(token: str) -> Optional[dict]:
         >>>     user_id = payload.get("user_id")
     """
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+        )
         return payload
     except JWTError:
         return None
@@ -155,18 +161,18 @@ def parse_expiry_to_datetime(expiry: str) -> datetime:
         ValueError: Invalid expiry format. Use: 1H, 1D, 1M, 1Y
     """
     valid_formats = {"H": "hours", "D": "days", "M": "months", "Y": "years"}
-    
+
     if len(expiry) < 2 or expiry[-1] not in valid_formats:
         raise ValueError("Invalid expiry format. Use: 1H, 1D, 1M, 1Y")
-    
+
     try:
         quantity = int(expiry[:-1])
         unit = expiry[-1]
     except ValueError:
         raise ValueError("Invalid expiry format. Use: 1H, 1D, 1M, 1Y")
-    
+
     now = datetime.now(timezone.utc)
-    
+
     if unit == "H":
         return now + timedelta(hours=quantity)
     elif unit == "D":
@@ -175,7 +181,7 @@ def parse_expiry_to_datetime(expiry: str) -> datetime:
         return now + timedelta(days=quantity * 30)  # Approximate month
     elif unit == "Y":
         return now + timedelta(days=quantity * 365)  # Approximate year
-    
+
     raise ValueError("Invalid expiry format. Use: 1H, 1D, 1M, 1Y")
 
 
@@ -200,9 +206,7 @@ def verify_paystack_signature(payload: bytes, signature: str) -> bool:
         - Use constant-time comparison to prevent timing attacks.
     """
     computed_signature = hmac.new(
-        settings.PAYSTACK_WEBHOOK_SECRET.encode(),
-        payload,
-        hashlib.sha512
+        settings.PAYSTACK_WEBHOOK_SECRET.encode(), payload, hashlib.sha512
     ).hexdigest()
-    
+
     return hmac.compare_digest(computed_signature, signature)

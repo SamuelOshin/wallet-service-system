@@ -6,7 +6,7 @@ Endpoints:
 - GET /auth/google/callback: Handle OAuth callback
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -32,10 +32,6 @@ async def google_login():
 
     Returns:
         RedirectResponse: Redirects user to Google sign-in page.
-
-    Examples:
-        >>> # User visits: GET /auth/google
-        >>> # Gets redirected to: https://accounts.google.com/o/oauth2/v2/auth?...
 
     Notes:
         - User will be prompted to sign in with Google.
@@ -65,24 +61,6 @@ async def google_callback(
     Raises:
         HTTPException: 400 if code exchange fails or user info retrieval fails.
 
-    Examples:
-        >>> # Google redirects to: GET /auth/google/callback?code=abc123
-        >>> # Response:
-        >>> {
-        >>>   "status": "SUCCESS",
-        >>>   "status_code": 200,
-        >>>   "message": "Authentication successful",
-        >>>   "data": {
-        >>>     "access_token": "eyJhbGc...",
-        >>>     "user": {
-        >>>       "id": 1,
-        >>>       "email": "user@example.com",
-        >>>       "name": "John Doe",
-        >>>       "wallet_number": "1234567890123"
-        >>>     }
-        >>>   }
-        >>> }
-
     Notes:
         - Creates user and wallet if first time sign-in.
         - Returns JWT token for subsequent API requests.
@@ -99,10 +77,8 @@ async def google_callback(
                 error="GOOGLE_AUTH_ERROR",
             )
 
-        
         user_info = await GoogleAuthService.get_user_info(access_token)
 
-       
         user_data = UserCreate(
             email=user_info["email"],
             google_id=user_info["id"],
@@ -111,10 +87,7 @@ async def google_callback(
 
         user = GoogleAuthService.get_or_create_user(db, user_data)
 
-       
-        jwt_token = create_access_token(
-            data={"sub": user.email, "user_id": user.id}
-        )
+        jwt_token = create_access_token(data={"sub": user.email, "user_id": user.id})
 
         user_response = {
             "id": user.id,

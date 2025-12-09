@@ -2,6 +2,7 @@
 Wallet operation routes.
 
 Endpoints:
+- GET /wallet/me: Get user profile and wallet details
 - POST /wallet/deposit: Initialize Paystack deposit
 - POST /wallet/paystack/webhook: Handle Paystack webhooks
 - GET /wallet/deposit/{reference}/status: Check deposit status
@@ -10,7 +11,6 @@ Endpoints:
 - GET /wallet/transactions: Get transaction history
 """
 
-from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Header, Request, status
 from sqlalchemy.orm import Session
@@ -19,11 +19,9 @@ from app.api.core.database import get_db
 from app.api.models.user import APIKey, User
 from app.api.schemas.wallet import (
     DepositRequest,
-    DepositStatusResponse,
-    TransactionHistoryResponse,
     TransactionResponse,
     TransferRequest,
-    WalletBalanceResponse,
+    UserDetailsResponse,
 )
 from app.api.services.wallet_service import WalletService
 from app.api.utils.auth_middleware import get_current_user, require_permission
@@ -39,6 +37,52 @@ from app.api.routes.docs.wallet_docs import (
 )
 
 router = APIRouter(prefix="/wallet", tags=["Wallet"])
+
+
+@router.get("/me")
+async def get_user_details(
+    auth: tuple[User, APIKey | None] = Depends(get_current_user),
+    _: None = Depends(require_permission("read")),
+    db: Session = Depends(get_db),
+):
+    """
+    Get authenticated user's profile and wallet details.
+
+    Args:
+        auth (tuple): Authenticated user and optional API key.
+        db (Session): Database session.
+
+    Returns:
+        JSONResponse: User profile with wallet information.
+
+
+    Notes:
+        - Returns authenticated user's profile and wallet balance.
+        - Requires valid authentication token.
+    """
+    user, _ = auth
+
+    wallet = WalletService.get_wallet_by_user_id(db, user.id)
+
+    if not wallet:
+        return error_response(
+            status_code=status.HTTP_404_NOT_FOUND,
+            message="Wallet not found",
+            error="WALLET_NOT_FOUND",
+        )
+
+    user_details = UserDetailsResponse(
+        name=user.name,
+        email=user.email,
+        wallet_number=wallet.wallet_number,
+        balance=wallet.balance,
+    )
+
+    return success_response(
+        status_code=status.HTTP_200_OK,
+        message="User details retrieved",
+        data=user_details,
+    )
 
 
 @router.post("/deposit", responses=deposit_funds_responses)
@@ -62,24 +106,6 @@ async def deposit_funds(
     Raises:
         HTTPException: 400 if Paystack API call fails or wallet not found.
 
-    Examples:
-        >>> # Request:
-        >>> POST /wallet/deposit
-        >>> {
-        >>>   "amount": 5000.00
-        >>> }
-        >>> # Response:
-        >>> {
-        >>>   "status": "SUCCESS",
-        >>>   "status_code": 200,
-        >>>   "message": "Deposit initialized successfully",
-        >>>   "data": {
-        >>>     "reference": "DEP_1234567890_abc123",
-        >>>     "authorization_url": "https://checkout.paystack.com/...",
-        >>>     "amount": "5000.00"
-        >>>   }
-        >>> }
-
     Notes:
         - Creates pending transaction in database.
         - User completes payment on Paystack URL.
@@ -97,7 +123,7 @@ async def deposit_funds(
         )
 
     try:
-        result = await WalletService.initialize_paystack_deposit(
+        result = WalletService.initialize_paystack_deposit(
             db=db,
             wallet=wallet,
             amount=request.amount,
@@ -136,26 +162,6 @@ async def paystack_webhook(
     Returns:
         JSONResponse: Simple success confirmation for Paystack.
 
-    Examples:
-        >>> # Paystack sends:
-        >>> POST /wallet/paystack/webhook
-        >>> Headers: x-paystack-signature: abc123...
-        >>> Body:
-        >>> {
-        >>>   "event": "charge.success",
-        >>>   "data": {
-        >>>     "reference": "DEP_1234567890_abc123",
-        >>>     "amount": 500000,
-        >>>     "status": "success"
-        >>>   }
-        >>> }
-        >>> # Response:
-        >>> {
-        >>>   "status": "SUCCESS",
-        >>>   "status_code": 200,
-        >>>   "message": "Webhook processed successfully",
-        >>>   "data": {}
-        >>> }
 
     Notes:
         - CRITICAL: Verifies Paystack signature to prevent spoofing.
@@ -181,7 +187,7 @@ async def paystack_webhook(
     # Only process successful charge events
     if event == "charge.success":
         reference = data["data"]["reference"]
-        
+
         # Process the deposit (idempotent)
         WalletService.process_successful_deposit(db, reference)
 
@@ -190,6 +196,71 @@ async def paystack_webhook(
         message="Webhook processed successfully",
         data={},
     )
+
+
+@router.post("/deposit/{reference}/verify", responses=check_deposit_status_responses)
+async def verify_deposit_with_paystack(
+    reference: str,
+    auth: tuple[User, APIKey | None] = Depends(get_current_user),
+    _: None = Depends(require_permission("deposit")),
+    db: Session = Depends(get_db),
+):
+    """
+    Manually verify a deposit transaction with Paystack and update status.
+
+    Args:
+        reference (str): Transaction reference from your system.
+        auth (tuple): Authenticated user and optional API key.
+        db (Session): Database session.
+
+    Returns:
+        JSONResponse: Transaction status from Paystack.
+
+    Raises:
+        HTTPException: 404 if transaction not found, 400 if Paystack verification fails.
+
+    Notes:
+        - Use this endpoint if webhook fails and payment is pending.
+        - Queries Paystack API to verify actual payment status.
+        - Updates local transaction status if Paystack confirms success.
+    """
+    user, _ = auth
+
+    # Get transaction from database
+    transaction = WalletService.get_transaction_by_reference(db, reference)
+
+    if not transaction:
+        return error_response(
+            status_code=status.HTTP_404_NOT_FOUND,
+            message="Transaction not found",
+            error="TRANSACTION_NOT_FOUND",
+        )
+
+    # Verify with Paystack
+    try:
+        paystack_status = WalletService.verify_paystack_transaction(reference)
+
+        # If Paystack says success and our record is pending, process it
+        if paystack_status["status"] == "success" and transaction.status == "pending":
+            WalletService.process_successful_deposit(db, reference)
+            transaction = WalletService.get_transaction_by_reference(db, reference)
+
+        return success_response(
+            status_code=status.HTTP_200_OK,
+            message="Deposit verified",
+            data={
+                "reference": reference,
+                "status": transaction.status,
+                "amount": str(transaction.amount),
+                "paystack_confirmed": paystack_status["status"] == "success",
+            },
+        )
+    except Exception as e:
+        return error_response(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            message=f"Paystack verification failed: {str(e)}",
+            error="PAYSTACK_ERROR",
+        )
 
 
 @router.get("/deposit/{reference}/status", responses=check_deposit_status_responses)
@@ -212,21 +283,6 @@ async def check_deposit_status(
 
     Raises:
         HTTPException: 404 if transaction not found.
-
-    Examples:
-        >>> # Request: GET /wallet/deposit/DEP_1234567890_abc123/status
-        >>> # Response:
-        >>> {
-        >>>   "status": "SUCCESS",
-        >>>   "status_code": 200,
-        >>>   "message": "Transaction status retrieved",
-        >>>   "data": {
-        >>>     "reference": "DEP_1234567890_abc123",
-        >>>     "status": "success",
-        >>>     "amount": "5000.00",
-        >>>     "created_at": "2025-01-09T12:00:00Z"
-        >>>   }
-        >>> }
 
     Notes:
         - This endpoint does NOT credit wallets.
@@ -286,18 +342,6 @@ async def get_wallet_balance(
     Raises:
         HTTPException: 404 if wallet not found.
 
-    Examples:
-        >>> # Request: GET /wallet/balance
-        >>> # Response:
-        >>> {
-        >>>   "status": "SUCCESS",
-        >>>   "status_code": 200,
-        >>>   "message": "Wallet balance retrieved",
-        >>>   "data": {
-        >>>     "balance": "15000.00",
-        >>>     "wallet_number": "1234567890123"
-        >>>   }
-        >>> }
 
     Notes:
         - Requires 'read' permission if using API key.
@@ -347,26 +391,6 @@ async def transfer_funds(
     Raises:
         HTTPException: 400 if insufficient balance, 404 if wallet not found.
 
-    Examples:
-        >>> # Request:
-        >>> POST /wallet/transfer
-        >>> {
-        >>>   "wallet_number": "9876543210123",
-        >>>   "amount": 3000.00
-        >>> }
-        >>> # Response:
-        >>> {
-        >>>   "status": "SUCCESS",
-        >>>   "status_code": 200,
-        >>>   "message": "Transfer completed successfully",
-        >>>   "data": {
-        >>>     "status": "success",
-        >>>     "message": "Transfer completed successfully",
-        >>>     "reference": "TRF_1234567890_xyz",
-        >>>     "amount": "3000.00",
-        >>>     "recipient_wallet": "9876543210123"
-        >>>   }
-        >>> }
 
     Notes:
         - Atomic operation: both debit and credit succeed or both fail.
@@ -390,6 +414,8 @@ async def transfer_funds(
             sender_wallet=sender_wallet,
             recipient_wallet_number=request.wallet_number,
             amount=request.amount,
+            user_id=user.id,
+            idempotency_key=request.idempotency_key,
         )
 
         return success_response(
@@ -425,28 +451,7 @@ async def get_transaction_history(
     Raises:
         HTTPException: 404 if wallet not found.
 
-    Examples:
-        >>> # Request: GET /wallet/transactions
-        >>> # Response:
-        >>> {
-        >>>   "status": "SUCCESS",
-        >>>   "status_code": 200,
-        >>>   "message": "Transaction history retrieved",
-        >>>   "data": {
-        >>>     "transactions": [
-        >>>       {
-        >>>         "id": 1,
-        >>>         "type": "deposit",
-        >>>         "amount": "5000.00",
-        >>>         "status": "success",
-        >>>         "reference": "DEP_123",
-        >>>         "metadata": {},
-        >>>         "created_at": "2025-01-09T12:00:00Z"
-        >>>       }
-        >>>     ],
-        >>>     "total": 1
-        >>>   }
-        >>> }
+
 
     Notes:
         - Returns transactions ordered by most recent first.
@@ -466,18 +471,7 @@ async def get_transaction_history(
 
     transactions = WalletService.get_transactions(db, wallet.id, limit=50)
 
-    transactions_data = [
-        {
-            "id": txn.id,
-            "type": txn.type,
-            "amount": str(txn.amount),
-            "status": txn.status,
-            "reference": txn.reference,
-            "metadata": txn.metadata,
-            "created_at": txn.created_at.isoformat(),
-        }
-        for txn in transactions
-    ]
+    transactions_data = [TransactionResponse.from_orm(txn) for txn in transactions]
 
     return success_response(
         status_code=status.HTTP_200_OK,

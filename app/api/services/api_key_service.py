@@ -16,7 +16,11 @@ from sqlalchemy.orm import Session
 
 from app.api.core.config import get_settings
 from app.api.models.user import APIKey
-from app.api.utils.security import generate_api_key, hash_api_key, parse_expiry_to_datetime, verify_api_key
+from app.api.utils.security import (
+    generate_api_key,
+    hash_api_key,
+    parse_expiry_to_datetime,
+)
 
 settings = get_settings()
 
@@ -48,7 +52,7 @@ class APIKeyService:
                 and_(
                     APIKey.user_id == user_id,
                     APIKey.is_revoked == False,
-                    APIKey.expires_at > now
+                    APIKey.expires_at > now,
                 )
             )
             .count()
@@ -56,11 +60,7 @@ class APIKeyService:
 
     @staticmethod
     def create_api_key(
-        db: Session,
-        user_id: int,
-        name: str,
-        permissions: List[str],
-        expiry: str
+        db: Session, user_id: int, name: str, permissions: List[str], expiry: str
     ) -> tuple[APIKey, str]:
         """
         Create a new API key for a user.
@@ -94,7 +94,9 @@ class APIKeyService:
         # Check key limit
         active_count = APIKeyService.count_active_keys(db, user_id)
         if active_count >= settings.MAX_API_KEYS_PER_USER:
-            raise ValueError(f"Maximum {settings.MAX_API_KEYS_PER_USER} active API keys allowed per user")
+            raise ValueError(
+                f"Maximum {settings.MAX_API_KEYS_PER_USER} active API keys allowed per user"
+            )
 
         # Generate API key
         plain_key = generate_api_key()
@@ -161,13 +163,13 @@ class APIKeyService:
             >>>     raise HTTPException(status_code=401, detail="Invalid API key")
         """
         api_key = APIKeyService.get_api_key_by_value(db, plain_key)
-        
+
         if not api_key:
             return None
-        
+
         if not api_key.is_valid():
             return None
-        
+
         return api_key
 
     @staticmethod
@@ -188,9 +190,11 @@ class APIKeyService:
             >>> print(success)
             True
         """
-        api_key = db.query(APIKey).filter(
-            and_(APIKey.id == key_id, APIKey.user_id == user_id)
-        ).first()
+        api_key = (
+            db.query(APIKey)
+            .filter(and_(APIKey.id == key_id, APIKey.user_id == user_id))
+            .first()
+        )
 
         if not api_key:
             return False
@@ -201,10 +205,7 @@ class APIKeyService:
 
     @staticmethod
     def rollover_expired_key(
-        db: Session,
-        expired_key_id: int,
-        user_id: int,
-        new_expiry: str
+        db: Session, expired_key_id: int, user_id: int, new_expiry: str
     ) -> tuple[APIKey, str]:
         """
         Create new API key using permissions from an expired key.
@@ -234,9 +235,11 @@ class APIKeyService:
             - Old key remains in database but is marked revoked.
         """
         # Get expired key
-        expired_key = db.query(APIKey).filter(
-            and_(APIKey.id == expired_key_id, APIKey.user_id == user_id)
-        ).first()
+        expired_key = (
+            db.query(APIKey)
+            .filter(and_(APIKey.id == expired_key_id, APIKey.user_id == user_id))
+            .first()
+        )
 
         if not expired_key:
             raise ValueError("API key not found or unauthorized")

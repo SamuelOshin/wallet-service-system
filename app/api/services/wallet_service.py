@@ -14,11 +14,10 @@ from decimal import Decimal
 from typing import Dict, List, Optional
 
 import httpx
-from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
 from app.api.core.config import get_settings
-from app.api.models.user import Transaction, Wallet
+from app.api.models.user import IdempotencyKey, Transaction, Wallet
 
 settings = get_settings()
 
@@ -83,11 +82,8 @@ class WalletService:
         return f"{prefix}_{timestamp}_{random_str}"
 
     @staticmethod
-    async def initialize_paystack_deposit(
-        db: Session,
-        wallet: Wallet,
-        amount: Decimal,
-        user_email: str
+    def initialize_paystack_deposit(
+        db: Session, wallet: Wallet, amount: Decimal, user_email: str
     ) -> Dict[str, str]:
         """
         Initialize Paystack deposit transaction.
@@ -149,10 +145,9 @@ class WalletService:
             "callback_url": f"{settings.FRONTEND_URL}/payment/callback",
         }
 
-        async with httpx.AsyncClient() as client:
-            response = await client.post(paystack_url, json=payload, headers=headers)
-            response.raise_for_status()
-            data = response.json()
+        response = httpx.post(paystack_url, json=payload, headers=headers)
+        response.raise_for_status()
+        data = response.json()
 
         return {
             "reference": reference,
@@ -182,9 +177,12 @@ class WalletService:
             - Updates transaction status and wallet balance atomically.
         """
         # Get transaction
-        transaction = db.query(Transaction).filter(
-            Transaction.reference == reference
-        ).with_for_update().first()
+        transaction = (
+            db.query(Transaction)
+            .filter(Transaction.reference == reference)
+            .with_for_update()
+            .first()
+        )
 
         if not transaction:
             return False
@@ -208,7 +206,9 @@ class WalletService:
         db: Session,
         sender_wallet: Wallet,
         recipient_wallet_number: str,
-        amount: Decimal
+        amount: Decimal,
+        user_id: int,
+        idempotency_key: Optional[str] = None
     ) -> Dict[str, any]:
         """
         Transfer funds between wallets (atomic operation).
@@ -218,16 +218,18 @@ class WalletService:
             sender_wallet (Wallet): Sender's wallet.
             recipient_wallet_number (str): Recipient's wallet number.
             amount (Decimal): Transfer amount.
+            user_id (int): ID of the user initiating the transfer.
+            idempotency_key (Optional[str]): Unique key to prevent duplicate transfers.
 
         Returns:
             Dict[str, any]: Transfer result with status and reference.
 
         Raises:
-            ValueError: If insufficient balance, invalid recipient, or self-transfer.
+            ValueError: If insufficient balance, invalid recipient, self-transfer, or duplicate idempotency key.
 
         Examples:
             >>> result = WalletService.transfer_funds(
-            >>>     db, sender_wallet, "9876543210123", Decimal("3000.00")
+            >>>     db, sender_wallet, "9876543210123", Decimal("3000.00"), user_id=1, idempotency_key="uuid-123"
             >>> )
             >>> print(result["status"])
             'success'
@@ -235,15 +237,26 @@ class WalletService:
         Notes:
             - Atomic transaction: either both debit and credit succeed, or both fail.
             - Creates two transaction records: transfer_out and transfer_in.
-            - Prevents self-transfers.
+            - Prevents self-transfers and duplicate operations via idempotency key.
         """
+        # Check idempotency key if provided
+        if idempotency_key:
+            existing_key = db.query(IdempotencyKey).filter(
+                IdempotencyKey.key == idempotency_key,
+                IdempotencyKey.operation == "transfer"
+            ).first()
+            if existing_key:
+                raise ValueError("Duplicate transfer request")
+
         # Validate sender balance
         if sender_wallet.balance < amount:
             raise ValueError("Insufficient balance")
 
         # Get recipient wallet
-        recipient_wallet = WalletService.get_wallet_by_number(db, recipient_wallet_number)
-        
+        recipient_wallet = WalletService.get_wallet_by_number(
+            db, recipient_wallet_number
+        )
+
         if not recipient_wallet:
             raise ValueError("Recipient wallet not found")
 
@@ -289,6 +302,15 @@ class WalletService:
 
             db.add(sender_txn)
             db.add(recipient_txn)
+            
+            # Store idempotency key if provided
+            if idempotency_key:
+                db.add(IdempotencyKey(
+                    key=idempotency_key,
+                    operation="transfer",
+                    user_id=user_id
+                ))
+            
             db.commit()
 
             return {
@@ -305,10 +327,7 @@ class WalletService:
 
     @staticmethod
     def get_transactions(
-        db: Session,
-        wallet_id: int,
-        limit: int = 50,
-        offset: int = 0
+        db: Session, wallet_id: int, limit: int = 50, offset: int = 0
     ) -> List[Transaction]:
         """
         Get transaction history for a wallet.
@@ -337,7 +356,9 @@ class WalletService:
         )
 
     @staticmethod
-    def get_transaction_by_reference(db: Session, reference: str) -> Optional[Transaction]:
+    def get_transaction_by_reference(
+        db: Session, reference: str
+    ) -> Optional[Transaction]:
         """
         Get transaction by reference.
 
@@ -354,3 +375,42 @@ class WalletService:
             'success'
         """
         return db.query(Transaction).filter(Transaction.reference == reference).first()
+
+    @staticmethod
+    def verify_paystack_transaction(reference: str) -> Dict[str, str]:
+        """
+        Verify transaction status with Paystack API.
+
+        Args:
+            reference (str): Transaction reference.
+
+        Returns:
+            Dict[str, str]: Transaction details from Paystack.
+
+        Raises:
+            httpx.HTTPStatusError: If Paystack API call fails.
+
+        Examples:
+            >>> result = WalletService.verify_paystack_transaction("DEP_123_abc")
+            >>> print(result["status"])
+            'success'
+
+        Notes:
+            - Queries Paystack to check actual payment status.
+            - Useful for manual verification if webhook fails.
+        """
+        paystack_url = f"{settings.PAYSTACK_BASE_URL}/transaction/verify/{reference}"
+        headers = {
+            "Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}",
+        }
+
+        response = httpx.get(paystack_url, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+
+        return {
+            "status": data["data"]["status"],
+            "amount": str(data["data"]["amount"] / 100),  # Convert from kobo
+            "reference": data["data"]["reference"],
+        }
+

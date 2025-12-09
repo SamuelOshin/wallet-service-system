@@ -26,7 +26,9 @@ class DepositRequest(BaseModel):
         >>> deposit = DepositRequest(amount=5000.00)
     """
 
-    amount: Decimal = Field(..., gt=0, description="Deposit amount (must be greater than 0)")
+    amount: Decimal = Field(
+        ..., gt=0, description="Deposit amount (must be greater than 0)"
+    )
 
     @field_validator("amount")
     @classmethod
@@ -59,13 +61,25 @@ class TransferRequest(BaseModel):
     Attributes:
         wallet_number (str): Recipient's 13-digit wallet number.
         amount (Decimal): Transfer amount (must be positive).
+        idempotency_key (str, optional): Unique key to prevent duplicate transfers.
 
     Examples:
-        >>> transfer = TransferRequest(wallet_number="1234567890123", amount=3000.00)
+        >>> transfer = TransferRequest(
+        >>>     wallet_number="1234567890123",
+        >>>     amount=3000.00,
+        >>>     idempotency_key="uuid-1234"
+        >>> )
     """
 
-    wallet_number: str = Field(..., min_length=13, max_length=13, description="Recipient's wallet number")
-    amount: Decimal = Field(..., gt=0, description="Transfer amount (must be greater than 0)")
+    wallet_number: str = Field(
+        ..., min_length=13, max_length=13, description="Recipient's wallet number"
+    )
+    amount: Decimal = Field(
+        ..., gt=0, description="Transfer amount (must be greater than 0)"
+    )
+    idempotency_key: Optional[str] = Field(
+        None, description="Unique key to prevent duplicate transfers"
+    )
 
     @field_validator("wallet_number")
     @classmethod
@@ -137,7 +151,7 @@ class TransactionResponse(BaseModel):
     amount: Decimal
     status: str
     reference: str
-    metadata: Dict[str, Any] = {}
+    metadata: Dict[str, Any] = Field(default_factory=dict, alias="extra_data")
     created_at: datetime
 
 
@@ -164,6 +178,8 @@ class DepositStatusResponse(BaseModel):
         amount (Decimal): Deposit amount.
         created_at (datetime): Transaction creation time.
 
+
+
     Notes:
         - This endpoint does NOT credit wallets.
         - Only webhooks should credit wallets.
@@ -173,3 +189,28 @@ class DepositStatusResponse(BaseModel):
     status: str
     amount: Decimal
     created_at: datetime
+
+
+class UserDetailsResponse(BaseModel):
+    """
+    Schema for user profile and wallet details.
+
+    Attributes:
+        name (str): User's full name.
+        email (str): User's email address.
+        wallet_number (str): User's 13-digit wallet number.
+        balance (Decimal): Current wallet balance.
+
+    Examples:
+        >>> details = UserDetailsResponse(
+        >>>     name="John Doe",
+        >>>     email="john@example.com",
+        >>>     wallet_number="1234567890123",
+        >>>     balance=50000.00
+        >>> )
+    """
+
+    name: str
+    email: str
+    wallet_number: str
+    balance: Decimal

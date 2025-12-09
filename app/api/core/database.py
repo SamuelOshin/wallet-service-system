@@ -31,21 +31,23 @@ def get_db_url(test_mode: bool = False, sync: bool = False) -> str:
         >>> print(url)
         'postgresql://user:pass@localhost:5432/wallet_service'
     """
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    
+    base_dir = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    )
+
     # SQLite for testing or if explicitly configured
     if test_mode:
         return f"sqlite:///{base_dir}/test.db"
-    
+
     # PostgreSQL (synchronous driver)
     db_url = settings.DATABASE_URL
-    
+
     # If DATABASE_URL contains async driver, convert to sync
     if "postgresql+asyncpg://" in db_url:
         return db_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
     elif "postgresql://" in db_url:
         return db_url
-    
+
     # Fallback
     return db_url
 

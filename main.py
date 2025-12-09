@@ -55,7 +55,11 @@ if settings.GOOGLE_CLIENT_ID and (
             "GOOGLE_CLIENT_ID is a placeholder. Set your real client ID in environment or .env before starting the app."
         )
 
-logger.info("Google OAuth: client_id=%s redirect_uri=%s", _mask_value(settings.GOOGLE_CLIENT_ID), settings.GOOGLE_REDIRECT_URI)
+logger.info(
+    "Google OAuth: client_id=%s redirect_uri=%s",
+    _mask_value(settings.GOOGLE_CLIENT_ID),
+    settings.GOOGLE_REDIRECT_URI,
+)
 
 
 @asynccontextmanager
@@ -76,7 +80,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -122,7 +126,7 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     uvicorn.run(
         "main:app",
         host="0.0.0.0",

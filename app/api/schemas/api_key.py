@@ -32,7 +32,9 @@ class APIKeyCreateRequest(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=100, description="API key name")
     permissions: List[str] = Field(..., min_items=1, description="List of permissions")
-    expiry: str = Field(..., pattern=r"^\d+[HDMY]$", description="Expiry: 1H, 1D, 1M, 1Y")
+    expiry: str = Field(
+        ..., pattern=r"^\d+[HDMY]$", description="Expiry: 1H, 1D, 1M, 1Y"
+    )
 
     @field_validator("permissions")
     @classmethod
@@ -41,7 +43,9 @@ class APIKeyCreateRequest(BaseModel):
         valid_permissions = {"deposit", "transfer", "read"}
         for perm in v:
             if perm not in valid_permissions:
-                raise ValueError(f"Invalid permission: {perm}. Must be one of: {valid_permissions}")
+                raise ValueError(
+                    f"Invalid permission: {perm}. Must be one of: {valid_permissions}"
+                )
         # Remove duplicates
         return list(set(v))
 
@@ -51,16 +55,18 @@ class APIKeyCreateRequest(BaseModel):
         """Ensure expiry format is valid."""
         if not v or len(v) < 2:
             raise ValueError("Invalid expiry format. Use: 1H, 1D, 1M, 1Y")
-        
+
         unit = v[-1]
         if unit not in ["H", "D", "M", "Y"]:
-            raise ValueError("Invalid expiry unit. Use: H (hour), D (day), M (month), Y (year)")
-        
+            raise ValueError(
+                "Invalid expiry unit. Use: H (hour), D (day), M (month), Y (year)"
+            )
+
         try:
             int(v[:-1])
         except ValueError:
             raise ValueError("Invalid expiry format. Use: 1H, 1D, 1M, 1Y")
-        
+
         return v
 
 
@@ -123,7 +129,9 @@ class APIKeyRolloverRequest(BaseModel):
     """
 
     expired_key_id: int = Field(..., gt=0, description="ID of expired API key")
-    expiry: str = Field(..., pattern=r"^\d+[HDMY]$", description="New expiry: 1H, 1D, 1M, 1Y")
+    expiry: str = Field(
+        ..., pattern=r"^\d+[HDMY]$", description="New expiry: 1H, 1D, 1M, 1Y"
+    )
 
     @field_validator("expiry")
     @classmethod
@@ -131,14 +139,16 @@ class APIKeyRolloverRequest(BaseModel):
         """Ensure expiry format is valid."""
         if not v or len(v) < 2:
             raise ValueError("Invalid expiry format. Use: 1H, 1D, 1M, 1Y")
-        
+
         unit = v[-1]
         if unit not in ["H", "D", "M", "Y"]:
-            raise ValueError("Invalid expiry unit. Use: H (hour), D (day), M (month), Y (year)")
-        
+            raise ValueError(
+                "Invalid expiry unit. Use: H (hour), D (day), M (month), Y (year)"
+            )
+
         try:
             int(v[:-1])
         except ValueError:
             raise ValueError("Invalid expiry format. Use: 1H, 1D, 1M, 1Y")
-        
+
         return v

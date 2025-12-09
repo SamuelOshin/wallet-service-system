@@ -11,7 +11,6 @@ from typing import Dict, Optional
 from urllib.parse import urlencode
 
 import httpx
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.core.config import get_settings
@@ -45,10 +44,15 @@ class GoogleAuthService:
             True
         """
         # Validate Google credentials
-        if not settings.GOOGLE_CLIENT_ID or settings.GOOGLE_CLIENT_ID in (
-            "your-google-client-id.apps.googleusercontent.com",
-            "your-client-id.apps.googleusercontent.com",
-        ) or settings.GOOGLE_CLIENT_ID.startswith("your-"):
+        if (
+            not settings.GOOGLE_CLIENT_ID
+            or settings.GOOGLE_CLIENT_ID
+            in (
+                "your-google-client-id.apps.googleusercontent.com",
+                "your-client-id.apps.googleusercontent.com",
+            )
+            or settings.GOOGLE_CLIENT_ID.startswith("your-")
+        ):
             raise ValueError(
                 "GOOGLE_CLIENT_ID is not configured. Please set your real Google OAuth client ID in .env or environment variables."
             )
@@ -89,10 +93,15 @@ class GoogleAuthService:
             True
         """
         # Validate credentials
-        if not settings.GOOGLE_CLIENT_SECRET or settings.GOOGLE_CLIENT_SECRET in (
-            "your-google-client-secret",
-            "your-client-secret",
-        ) or settings.GOOGLE_CLIENT_SECRET.startswith("your-"):
+        if (
+            not settings.GOOGLE_CLIENT_SECRET
+            or settings.GOOGLE_CLIENT_SECRET
+            in (
+                "your-google-client-secret",
+                "your-client-secret",
+            )
+            or settings.GOOGLE_CLIENT_SECRET.startswith("your-")
+        ):
             raise ValueError(
                 "GOOGLE_CLIENT_SECRET is not configured. Please set your real Google OAuth client secret in .env or environment variables."
             )
@@ -132,7 +141,9 @@ class GoogleAuthService:
         headers = {"Authorization": f"Bearer {access_token}"}
 
         async with httpx.AsyncClient() as client:
-            response = await client.get(GoogleAuthService.GOOGLE_USERINFO_URL, headers=headers)
+            response = await client.get(
+                GoogleAuthService.GOOGLE_USERINFO_URL, headers=headers
+            )
             response.raise_for_status()
             return response.json()
 

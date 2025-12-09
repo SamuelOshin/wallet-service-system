@@ -8,11 +8,12 @@ framework internals or stack traces.
 from fastapi import Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
-def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+def validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
     """
     Handle Pydantic validation errors.
 
@@ -44,11 +45,11 @@ def validation_exception_handler(request: Request, exc: RequestValidationError) 
         - Never exposes internal validation logic.
     """
     errors = {}
-    
+
     for error in exc.errors():
         field = ".".join(str(loc) for loc in error["loc"][1:])  # Skip 'body' prefix
         message = error["msg"]
-        
+
         if field in errors:
             errors[field].append(message)
         else:
@@ -65,7 +66,9 @@ def validation_exception_handler(request: Request, exc: RequestValidationError) 
     )
 
 
-def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+def http_exception_handler(
+    request: Request, exc: StarletteHTTPException
+) -> JSONResponse:
     """
     Handle HTTP exceptions (401, 403, 404, etc.).
 
@@ -146,6 +149,7 @@ def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """
     # Log the full exception for debugging
     import logging
+
     logger = logging.getLogger(__name__)
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
 

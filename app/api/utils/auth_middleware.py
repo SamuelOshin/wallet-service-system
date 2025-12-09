@@ -97,7 +97,7 @@ async def get_current_user_from_api_key(
         return None
 
     user = db.query(User).filter(User.id == api_key.user_id).first()
-    
+
     if not user:
         return None
 
@@ -106,7 +106,9 @@ async def get_current_user_from_api_key(
 
 async def get_current_user(
     jwt_user: Optional[User] = Depends(get_current_user_from_jwt),
-    api_key_auth: Optional[tuple[User, APIKey]] = Depends(get_current_user_from_api_key),
+    api_key_auth: Optional[tuple[User, APIKey]] = Depends(
+        get_current_user_from_api_key
+    ),
 ) -> tuple[User, Optional[APIKey]]:
     """
     Get authenticated user from either JWT or API key.
@@ -177,6 +179,7 @@ def require_permission(required_permission: str):
         - JWT users always have all permissions.
         - Only checks permission if authenticated with API key.
     """
+
     async def permission_checker(
         auth: tuple[User, Optional[APIKey]] = Depends(get_current_user),
     ):
