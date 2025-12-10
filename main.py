@@ -20,6 +20,7 @@ from app.api.utils.exception_handlers import (
 from contextlib import asynccontextmanager
 from app.api.core.database import engine
 from app.api.models import Base
+from app.api.core.celery_config import celery_app
 import logging
 
 try:

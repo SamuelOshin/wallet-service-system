@@ -14,9 +14,10 @@ Endpoints:
 
 from fastapi import APIRouter, Depends, Header, Request, status
 from sqlalchemy.orm import Session
+import uuid
 
 from app.api.core.database import get_db
-from app.api.models.user import APIKey, User
+from app.api.models.user import APIKey, User, IdempotencyKey
 from app.api.schemas.wallet import (
     DepositRequest,
     TransactionResponse,
@@ -24,6 +25,7 @@ from app.api.schemas.wallet import (
     UserDetailsResponse,
 )
 from app.api.services.wallet_service import WalletService
+from app.api.services.tasks import process_transfer_task
 from app.api.utils.auth_middleware import get_current_user, require_permission
 from app.api.utils.response_payload import error_response, success_response
 from app.api.utils.security import verify_paystack_signature
@@ -378,23 +380,27 @@ async def transfer_funds(
     db: Session = Depends(get_db),
 ):
     """
-    Transfer funds to another wallet.
+    Queue transfer funds to another wallet (asynchronous).
+
+    Submits transfer as background task and returns immediately with reference.
+    Client polls the status endpoint to track progress.
 
     Args:
-        request (TransferRequest): Transfer details (wallet_number, amount).
+        request (TransferRequest): Transfer details (wallet_number, amount, idempotency_key).
         auth (tuple): Authenticated user and optional API key.
         db (Session): Database session.
 
     Returns:
-        JSONResponse: Success response with transfer confirmation.
+        JSONResponse: 202 Accepted with transfer reference and idempotency key.
 
     Raises:
-        HTTPException: 400 if insufficient balance, 404 if wallet not found.
-
+        HTTPException: 400 if invalid request, 404 if wallet not found.
 
     Notes:
-        - Atomic operation: both debit and credit succeed or both fail.
-        - Creates two transaction records (transfer_out, transfer_in).
+        - HTTP 202: Transfer is queued, not yet completed.
+        - idempotency_key must be unique per transfer request (client-provided).
+        - Retry with same idempotency_key if network fails (idempotent).
+        - Use reference to poll /wallet/transfer/{reference}/status for updates.
         - Requires 'transfer' permission if using API key.
     """
     user, _ = auth
@@ -409,19 +415,45 @@ async def transfer_funds(
         )
 
     try:
-        result = WalletService.transfer_funds(
-            db=db,
-            sender_wallet=sender_wallet,
+        # Check if this idempotency key was already processed
+        existing_key = db.query(IdempotencyKey).filter(
+            IdempotencyKey.key == request.idempotency_key,
+            IdempotencyKey.user_id == user.id,
+            IdempotencyKey.operation == "transfer"
+        ).first()
+        
+        if existing_key:
+            # Return cached result (same transfer already queued/completed)
+            return success_response(
+                status_code=status.HTTP_202_ACCEPTED,
+                message="Transfer queued (cached result)",
+                data={
+                    "status": "processing",
+                    "reference": existing_key.result.get("reference"),
+                    "idempotency_key": request.idempotency_key,
+                }
+            )
+        
+        # Generate transaction reference
+        reference = f"TRF_{int(__import__('time').time())}_{__import__('uuid').uuid4().hex[:8]}"
+        
+        # Queue transfer in background
+        task = process_transfer_task.delay(
+            sender_wallet_id=sender_wallet.id,
             recipient_wallet_number=request.wallet_number,
-            amount=request.amount,
+            amount=float(request.amount),
             user_id=user.id,
             idempotency_key=request.idempotency_key,
         )
-
+        
         return success_response(
-            status_code=status.HTTP_200_OK,
-            message="Transfer completed successfully",
-            data=result,
+            status_code=status.HTTP_202_ACCEPTED,
+            message="Transfer queued for processing",
+            data={
+                "status": "processing",
+                "reference": reference,
+                "idempotency_key": request.idempotency_key,
+            }
         )
 
     except ValueError as e:
@@ -430,6 +462,69 @@ async def transfer_funds(
             message=str(e),
             error="TRANSFER_ERROR",
         )
+
+
+@router.get("/transfer/{reference}/status")
+async def check_transfer_status(
+    reference: str,
+    auth: tuple[User, APIKey | None] = Depends(get_current_user),
+    _: None = Depends(require_permission("read")),
+    db: Session = Depends(get_db),
+):
+    """
+    Check status of a queued transfer by reference.
+
+    Args:
+        reference (str): Transaction reference from initial transfer request.
+        auth (tuple): Authenticated user and optional API key.
+        db (Session): Database session.
+
+    Returns:
+        JSONResponse: Current transfer status (processing/completed/failed).
+
+    Raises:
+        HTTPException: 404 if transfer not found.
+
+    Notes:
+        - Poll this endpoint to track transfer progress.
+        - Returns "processing" until transfer completes or fails.
+        - Once completed, includes final transaction details.
+    """
+    user, _ = auth
+
+    wallet = WalletService.get_wallet_by_user_id(db, user.id)
+
+    if not wallet:
+        return error_response(
+            status_code=status.HTTP_404_NOT_FOUND,
+            message="Wallet not found",
+            error="WALLET_NOT_FOUND",
+        )
+
+    # Find transaction by reference
+    transaction = WalletService.get_transaction_by_reference(db, reference)
+
+    if not transaction or transaction.wallet_id != wallet.id:
+        return error_response(
+            status_code=status.HTTP_404_NOT_FOUND,
+            message="Transfer not found",
+            error="TRANSFER_NOT_FOUND",
+        )
+
+    response_data = {
+        "reference": transaction.reference,
+        "status": transaction.status,  # pending, success, failed
+        "amount": str(transaction.amount),
+        "type": transaction.type,  # transfer_out, transfer_in
+        "created_at": transaction.created_at.isoformat(),
+        "updated_at": transaction.updated_at.isoformat() if transaction.updated_at else None,
+    }
+
+    return success_response(
+        status_code=status.HTTP_200_OK,
+        message="Transfer status retrieved",
+        data=response_data,
+    )
 
 
 @router.get("/transactions", responses=get_transaction_history_responses)

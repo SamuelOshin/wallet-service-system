@@ -11,6 +11,7 @@ Defines schemas for:
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
+import uuid
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -56,19 +57,24 @@ class DepositResponse(BaseModel):
 
 class TransferRequest(BaseModel):
     """
-    Schema for wallet-to-wallet transfer request.
+    Schema for wallet-to-wallet transfer request (asynchronous).
 
     Attributes:
         wallet_number (str): Recipient's 13-digit wallet number.
         amount (Decimal): Transfer amount (must be positive).
-        idempotency_key (str, optional): Unique key to prevent duplicate transfers.
+        idempotency_key (str): Unique key to prevent duplicate transfers (client-generated).
 
     Examples:
+        >>> import uuid
         >>> transfer = TransferRequest(
         >>>     wallet_number="1234567890123",
         >>>     amount=3000.00,
-        >>>     idempotency_key="uuid-1234"
+        >>>     idempotency_key=str(uuid.uuid4())
         >>> )
+
+    Notes:
+        - idempotency_key must be unique per transfer request.
+        - If network fails, retry with same key for idempotent behavior.
     """
 
     wallet_number: str = Field(
@@ -77,8 +83,8 @@ class TransferRequest(BaseModel):
     amount: Decimal = Field(
         ..., gt=0, description="Transfer amount (must be greater than 0)"
     )
-    idempotency_key: Optional[str] = Field(
-        None, description="Unique key to prevent duplicate transfers"
+    idempotency_key: str = Field(
+        ..., description="Unique key to prevent duplicate transfers (client-generated)"
     )
 
     @field_validator("wallet_number")
@@ -100,21 +106,32 @@ class TransferRequest(BaseModel):
 
 class TransferResponse(BaseModel):
     """
-    Schema for successful transfer response.
+    Schema for transfer queued response (202 Accepted).
 
     Attributes:
-        status (str): Transfer status (always "success" for successful transfers).
-        message (str): Human-readable result message.
-        reference (str): Unique transaction reference.
-        amount (Decimal): Transfer amount.
-        recipient_wallet (str): Recipient's wallet number.
+        status (str): Task status ("processing", "completed", "failed").
+        message (str): Human-readable status message.
+        reference (str): Unique transaction reference for status polling.
+        idempotency_key (str): Echoed idempotency key from request.
+
+    Examples:
+        >>> response = TransferResponse(
+        >>>     status="processing",
+        >>>     message="Transfer queued for processing",
+        >>>     reference="TRF_1765968849_abc",
+        >>>     idempotency_key="550e8400-e29b-41d4-a716-446655440000"
+        >>> )
+
+    Notes:
+        - HTTP 202 Accepted: Transfer is queued, not yet completed.
+        - Use reference to poll /wallet/transfer/{reference}/status for updates.
+        - Client should retry with same idempotency_key on network failures.
     """
 
-    status: str = "success"
+    status: str 
     message: str
     reference: str
-    amount: Decimal
-    recipient_wallet: str
+    idempotency_key: str
 
 
 class WalletBalanceResponse(BaseModel):

@@ -1,13 +1,13 @@
 # Wallet Service with Paystack, JWT & API Keys
 
-A comprehensive backend wallet service built with FastAPI, featuring Google OAuth authentication, Paystack payment integration, and API key-based service access.
+A comprehensive backend wallet service built with FastAPI, featuring Google OAuth authentication, Paystack payment integration, API key-based service access, and asynchronous transfer processing with Celery and Redis.
 
 ## Features
 
 ✅ **Google OAuth Authentication** - Secure user sign-in with JWT tokens  
 ✅ **Wallet System** - Individual wallets with unique 13-digit numbers  
 ✅ **Paystack Deposits** - Integrate payments via Paystack  
-✅ **Wallet Transfers** - Send money between users  
+✅ **Asynchronous Wallet Transfers** - Send money between users with background processing and idempotency  
 ✅ **API Key Management** - Create service-to-service authentication keys with permissions  
 ✅ **Transaction History** - Track all wallet activities  
 ✅ **Webhook Handling** - Secure Paystack webhook verification  
@@ -19,29 +19,36 @@ A comprehensive backend wallet service built with FastAPI, featuring Google OAut
 wallet_service_system/
 ├── app/
 │   └── api/
-│       ├── core/           # Configuration & database
+│       ├── core/           # Configuration, database, Celery setup
 │       ├── models/         # SQLAlchemy ORM models
 │       ├── routes/         # API endpoints
 │       ├── schemas/        # Pydantic request/response models
-│       ├── services/       # Business logic layer
+│       ├── services/       # Business logic layer & Celery tasks
 │       └── utils/          # Helper functions & middleware
 ├── alembic/                # Database migrations
 ├── main.py                 # Application entry point
 └── .env                    # Environment configuration
 ```
 
+**Background Processing:**
+- **Celery**: Handles asynchronous wallet transfers
+- **Redis**: Message broker and result backend for Celery
+- **Idempotency**: Client-provided keys prevent duplicate transfers
+
 ## Tech Stack
 
 - **Framework**: FastAPI 0.109.0
-- **Database**: PostgreSQL with SQLAlchemy ORM
+- **Database**: PostgreSQL/SQLite with SQLAlchemy ORM
 - **Authentication**: Google OAuth 2.0 + JWT
 - **Payment**: Paystack API
+- **Background Tasks**: Celery with Redis
 - **Migration**: Alembic
 
 ## Prerequisites
 
 - Python 3.10+
-- PostgreSQL 14+
+- PostgreSQL 14+ or SQLite
+- Redis Server
 - Google OAuth credentials
 - Paystack account (test or live)
 
@@ -54,20 +61,36 @@ git clone <repository-url>
 cd wallet_service_system
 ```
 
-### 2. Create Virtual Environment
+### 2. Install uv (if not already installed)
 
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install uv
 ```
 
-### 3. Install Dependencies
+### 3. Create Virtual Environment & Install Dependencies
 
 ```bash
-pip install -r requirements.txt
+uv sync
 ```
 
-### 4. Configure Environment
+### 4. Install Redis
+
+#### On Windows (using Chocolatey):
+```bash
+choco install redis-64 -y
+```
+
+#### On macOS (using Homebrew):
+```bash
+brew install redis
+```
+
+#### On Linux:
+```bash
+sudo apt update && sudo apt install redis-server
+```
+
+### 5. Configure Environment
 
 Create `.env` file:
 
@@ -78,8 +101,10 @@ cp .env.example .env
 Update `.env` with your credentials:
 
 ```env
-# Database
-DATABASE_URL="postgresql://user:password@localhost:5432/wallet_db"
+# Database (use SQLite for development)
+DATABASE_URL="sqlite:///./wallet.db"
+# Or PostgreSQL
+# DATABASE_URL="postgresql://user:password@localhost:5432/wallet_db"
 
 # JWT
 SECRET_KEY="your-super-secret-key-change-this"
@@ -94,18 +119,23 @@ PAYSTACK_SECRET_KEY="sk_test_your_secret_key"
 PAYSTACK_PUBLIC_KEY="pk_test_your_public_key"
 PAYSTACK_WEBHOOK_SECRET="your_webhook_secret"
 
+# Redis (for Celery)
+REDIS_URL="redis://localhost:6379/0"
+CELERY_BROKER_URL="redis://localhost:6379/0"
+CELERY_RESULT_BACKEND="redis://localhost:6379/0"
+
 # Frontend URL
 FRONTEND_URL="http://localhost:3000"
 ```
 
-### 5. Setup Database
+### 6. Setup Database
 
 ```bash
-# Create database
+# For PostgreSQL: Create database
 createdb wallet_db
 
 # Run migrations
-alembic upgrade head
+uv run alembic upgrade head
 ```
 
 ### 6. Setup Google OAuth
@@ -127,16 +157,36 @@ alembic upgrade head
 
 ## Running the Application
 
-### Development Mode
+### 1. Start Redis Server
 
 ```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+# On Windows
+redis-server
+
+# On macOS/Linux (if installed via package manager)
+redis-server
 ```
 
-### Production Mode
+### 2. Start Celery Worker
+
+In a new terminal:
 
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
+uv run celery -A app.api.core.celery_config worker --loglevel=info
+```
+
+### 3. Start FastAPI Application
+
+#### Development Mode
+
+```bash
+uv run fastapi dev main.py
+```
+
+#### Production Mode
+
+```bash
+uv run fastapi run main.py --host 0.0.0.0 --port 8000 --workers 4
 ```
 
 API will be available at: `http://localhost:8000`
@@ -332,7 +382,7 @@ x-api-key: {api_key}  # Must have 'read' permission
 }
 ```
 
-#### Transfer Funds
+#### Transfer Funds (Asynchronous)
 ```http
 POST /api/v1/wallet/transfer
 Authorization: Bearer {jwt_token}
@@ -344,22 +394,78 @@ x-api-key: {api_key}  # Must have 'transfer' permission
 ```json
 {
   "wallet_number": "9876543210123",
-  "amount": 3000.00
+  "amount": 3000.00,
+  "idempotency_key": "unique-transfer-id-12345"
 }
 ```
 
-**Response:**
+**Response (202 Accepted):**
 ```json
 {
-  "status": "SUCCESS",
+  "status": "success",
+  "status_code": 202,
+  "message": "Transfer initiated successfully",
+  "data": {
+    "reference": "TRF_1234567890_xyz",
+    "status": "pending"
+  }
+}
+```
+
+**Notes:**
+- Transfers are processed asynchronously in the background using Celery
+- Use the `idempotency_key` to prevent duplicate transfers (client-generated UUID)
+- Poll the transfer status using the reference
+
+#### Check Transfer Status
+```http
+GET /api/v1/wallet/transfer/{reference}/status
+Authorization: Bearer {jwt_token}
+OR
+x-api-key: {api_key}  # Must have 'read' permission
+```
+
+**Response (when pending):**
+```json
+{
+  "status": "success",
+  "status_code": 200,
+  "message": "Transfer status retrieved",
+  "data": {
+    "reference": "TRF_1234567890_xyz",
+    "status": "pending",
+    "created_at": "2024-01-01T12:00:00Z"
+  }
+}
+```
+
+**Response (when completed):**
+```json
+{
+  "status": "success",
   "status_code": 200,
   "message": "Transfer completed successfully",
   "data": {
-    "status": "success",
-    "message": "Transfer completed successfully",
     "reference": "TRF_1234567890_xyz",
+    "status": "completed",
     "amount": "3000.00",
-    "recipient_wallet": "9876543210123"
+    "recipient_wallet": "9876543210123",
+    "completed_at": "2024-01-01T12:00:05Z"
+  }
+}
+```
+
+**Response (when failed):**
+```json
+{
+  "status": "failure",
+  "status_code": 200,
+  "message": "Transfer failed",
+  "data": {
+    "reference": "TRF_1234567890_xyz",
+    "status": "failed",
+    "error": "Insufficient funds",
+    "failed_at": "2024-01-01T12:00:05Z"
   }
 }
 ```
@@ -500,28 +606,46 @@ http://localhost:8000/api/v1/auth/google/callback
 app/api/
 ├── core/
 │   ├── config.py          # Environment configuration
-│   └── database.py        # Database connection
+│   ├── database.py        # Database connection
+│   └── celery_config.py   # Celery background task configuration
 ├── models/
 │   ├── base.py            # Base model & mixins
-│   └── user.py            # User, Wallet, Transaction, APIKey models
+│   └── user.py            # User, Wallet, Transaction, APIKey, IdempotencyKey models
 ├── routes/
 │   ├── auth.py            # Google OAuth endpoints
 │   ├── api_keys.py        # API key management
-│   └── wallet.py          # Wallet operations
+│   └── wallet.py          # Wallet operations (including async transfers)
 ├── schemas/
 │   ├── auth.py            # Auth request/response schemas
 │   ├── api_key.py         # API key schemas
-│   └── wallet.py          # Wallet schemas
+│   └── wallet.py          # Wallet schemas (updated for async transfers)
 ├── services/
 │   ├── google_auth_service.py  # Google OAuth logic
 │   ├── wallet_service.py       # Wallet business logic
-│   └── api_key_service.py      # API key management logic
+│   ├── api_key_service.py      # API key management logic
+│   └── tasks.py                # Celery background tasks
 └── utils/
     ├── auth_middleware.py      # JWT & API key authentication
     ├── security.py             # Hashing, JWT, signature verification
     ├── response_payload.py     # Standard response helpers
     └── exception_handlers.py   # Global error handling
 ```
+
+## Asynchronous Transfer Processing
+
+Wallet transfers are processed asynchronously using Celery to prevent timeouts and ensure reliability:
+
+- **Initiation**: Client sends transfer request with idempotency key
+- **Queueing**: Transfer is queued as a background task
+- **Processing**: Celery worker processes the transfer atomically
+- **Status Polling**: Client can check transfer status using the reference
+- **Idempotency**: Duplicate requests with same key are rejected
+
+**Benefits:**
+- No request timeouts for large transfers
+- Reliable processing even during high load
+- Duplicate prevention via client-provided keys
+- Real-time status updates
 
 ## License
 

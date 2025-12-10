@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     PAYSTACK_WEBHOOK_SECRET: str
     PAYSTACK_BASE_URL: str = "https://api.paystack.co"
 
+    # Celery & Redis
+    CELERY_BROKER_URL: str = "redis://localhost:6379/0"
+    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/1"
+
     # API Keys
     API_KEY_PREFIX: str = "sk_live_"
     MAX_API_KEYS_PER_USER: int = 5
