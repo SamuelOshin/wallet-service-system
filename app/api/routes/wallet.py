@@ -381,7 +381,7 @@ async def transfer_funds(
     Transfer funds to another wallet.
 
     Args:
-        request (TransferRequest): Transfer details (wallet_number, amount).
+        request (TransferRequest): Transfer details (wallet_number, amount, idempotency_key(optional for now)).
         auth (tuple): Authenticated user and optional API key.
         db (Session): Database session.
 
