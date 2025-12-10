@@ -22,7 +22,6 @@ from app.api.core.database import engine
 from app.api.models import Base
 import logging
 
-# Clear cached settings to ensure fresh load from .env
 try:
     get_settings.cache_clear()
 except AttributeError:

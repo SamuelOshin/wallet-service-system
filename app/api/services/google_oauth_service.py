@@ -169,18 +169,15 @@ class GoogleAuthService:
             - Creates wallet automatically for new users.
             - Wallet number is a unique 13-digit string.
         """
-        # Check if user exists
         user = db.query(User).filter(User.google_id == user_data.google_id).first()
 
         if user:
             return user
 
-        # Generate unique wallet number first (before user creation)
         wallet_number = Wallet.generate_wallet_number()
         while db.query(Wallet).filter(Wallet.wallet_number == wallet_number).first():
             wallet_number = Wallet.generate_wallet_number()
 
-        # Create new user and wallet together
         new_user = User(
             email=user_data.email,
             google_id=user_data.google_id,
@@ -188,9 +185,8 @@ class GoogleAuthService:
         )
 
         db.add(new_user)
-        db.flush()  # Get the user ID
+        db.flush() 
 
-        # Create wallet with the user ID
         wallet = Wallet(
             user_id=new_user.id,
             wallet_number=wallet_number,
@@ -198,5 +194,7 @@ class GoogleAuthService:
         )
 
         db.add(wallet)
+        db.commit()
+        db.refresh(new_user)
 
         return new_user
