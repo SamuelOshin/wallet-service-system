@@ -122,7 +122,7 @@ class WalletService:
             amount=amount,
             reference=reference,
             status="pending",
-            metadata={"email": user_email},
+            extra_data={"email": user_email},
         )
 
         db.add(transaction)
@@ -281,7 +281,7 @@ class WalletService:
                 amount=amount,
                 reference=reference,
                 status="success",
-                metadata={
+                extra_data={
                     "recipient_wallet": recipient_wallet_number,
                     "recipient_user_id": recipient_wallet.user_id,
                 },
@@ -294,7 +294,7 @@ class WalletService:
                 amount=amount,
                 reference=f"{reference}_IN",
                 status="success",
-                metadata={
+                extra_data={
                     "sender_wallet": sender_wallet.wallet_number,
                     "sender_user_id": sender_wallet.user_id,
                 },

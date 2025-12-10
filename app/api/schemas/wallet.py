@@ -140,7 +140,7 @@ class TransactionResponse(BaseModel):
         amount (Decimal): Transaction amount.
         status (str): Transaction status: 'pending', 'success', 'failed'.
         reference (str): Unique transaction reference.
-        metadata (Dict[str, Any]): Additional transaction information.
+        extra_data (Dict[str, Any]): Additional transaction information.
         created_at (datetime): Transaction timestamp.
     """
 
@@ -151,7 +151,7 @@ class TransactionResponse(BaseModel):
     amount: Decimal
     status: str
     reference: str
-    metadata: Dict[str, Any] = Field(default_factory=dict, alias="extra_data")
+    extra_data: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
 
 
