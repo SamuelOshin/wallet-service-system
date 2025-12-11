@@ -117,6 +117,37 @@ class TransferResponse(BaseModel):
     recipient_wallet: str
 
 
+class RecoverTransferRequest(BaseModel):
+    """
+    Schema for recovering a failed transfer.
+
+    Attributes:
+        reference (str): Transfer reference to recover.
+
+    Examples:
+        >>> recovery = RecoverTransferRequest(reference="TRF_123_abc")
+    """
+
+    reference: str = Field(..., description="Transfer reference to recover")
+
+
+class RecoverTransferResponse(BaseModel):
+    """
+    Schema for transfer recovery response.
+
+    Attributes:
+        status (str): Recovery status.
+        message (str): Human-readable result message.
+        recovered (bool): Whether recovery was performed.
+        reference (str): Transfer reference.
+    """
+
+    status: str
+    message: str
+    recovered: bool
+    reference: str
+
+
 class WalletBalanceResponse(BaseModel):
     """
     Schema for wallet balance response.

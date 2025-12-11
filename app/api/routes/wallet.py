@@ -21,6 +21,8 @@ from app.api.schemas.wallet import (
     DepositRequest,
     TransactionResponse,
     TransferRequest,
+    RecoverTransferRequest,
+    RecoverTransferResponse,
     UserDetailsResponse,
 )
 from app.api.services.wallet_service import WalletService
@@ -34,6 +36,7 @@ from app.api.routes.docs.wallet_docs import (
     get_wallet_balance_responses,
     transfer_funds_responses,
     get_transaction_history_responses,
+    recover_transfer_responses,
 )
 
 router = APIRouter(prefix="/wallet", tags=["Wallet"])
@@ -478,3 +481,53 @@ async def get_transaction_history(
         message="Transaction history retrieved",
         data={"transactions": transactions_data, "total": len(transactions_data)},
     )
+
+
+@router.post("/transfer/recover", responses=recover_transfer_responses)
+async def recover_failed_transfer(
+    request: RecoverTransferRequest,
+    auth: tuple[User, APIKey | None] = Depends(get_current_user),
+    _: None = Depends(require_permission("transfer")),
+    db: Session = Depends(get_db),
+):
+    """
+    Recover a failed transfer operation.
+
+    Attempts to recover a transfer where the sender was debited but the recipient
+    didn't receive the funds. This refunds the sender and marks transactions as failed.
+
+    Args:
+        request (RecoverTransferRequest): Recovery request with transfer reference.
+        auth (tuple): Authenticated user and optional API key.
+        db (Session): Database session.
+
+    Returns:
+        JSONResponse: Recovery result with success status and recovery outcome.
+
+    Raises:
+        HTTPException: 400 if reference invalid or recovery fails.
+
+    Notes:
+        - Only recovers transfers where sender was debited but recipient wasn't credited.
+        - Idempotent: safe to call multiple times.
+        - Requires 'transfer' permission if using API key.
+        - Background tasks also perform automatic recovery.
+    """
+    try:
+        recovered = WalletService.recover_failed_transfer(db, request.reference)
+
+        return success_response(
+            status_code=status.HTTP_200_OK,
+            message="Transfer recovered successfully" if recovered else "Transfer was already completed successfully",
+            data={
+                "recovered": recovered,
+                "reference": request.reference,
+            },
+        )
+
+    except ValueError as e:
+        return error_response(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            message=str(e),
+            error="RECOVERY_ERROR",
+        )

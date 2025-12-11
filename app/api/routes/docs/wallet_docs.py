@@ -692,3 +692,132 @@ get_transaction_history_custom_success = {
     "status_code": 200,
     "description": "Transaction history retrieved (limited to 50 most recent).",
 }
+
+# RECOVER TRANSFER ENDPOINT DOCS
+recover_transfer_responses = {
+    200: {
+        "description": "Transfer Recovery Completed",
+        "content": {
+            "application/json": {
+                "examples": {
+                    "recovery_performed": {
+                        "summary": "Transfer Recovered Successfully",
+                        "value": {
+                            "status": "success",
+                            "message": "Transfer recovered successfully",
+                            "status_code": 200,
+                            "data": {
+                                "recovered": True,
+                                "reference": "TRF_123_abc",
+                            },
+                        },
+                    },
+                    "no_recovery_needed": {
+                        "summary": "No Recovery Needed",
+                        "value": {
+                            "status": "success",
+                            "message": "Transfer was already completed successfully",
+                            "status_code": 200,
+                            "data": {
+                                "recovered": False,
+                                "reference": "TRF_123_abc",
+                            },
+                        },
+                    }
+                }
+            }
+        },
+    },
+    400: {
+        "description": "Bad Request - Invalid Reference or Recovery Failed",
+        "content": {
+            "application/json": {
+                "examples": {
+                    "invalid_reference": {
+                        "summary": "Transfer Reference Not Found",
+                        "value": {
+                            "status": "failure",
+                            "message": "Transfer reference not found or not in recoverable state",
+                            "status_code": 400,
+                            "error_code": "INVALID_REFERENCE",
+                            "errors": {},
+                        },
+                    },
+                    "recovery_failed": {
+                        "summary": "Recovery Operation Failed",
+                        "value": {
+                            "status": "failure",
+                            "message": "Recovery failed: database error",
+                            "status_code": 400,
+                            "error_code": "RECOVERY_ERROR",
+                            "errors": {},
+                        },
+                    }
+                }
+            }
+        },
+    },
+    401: {
+        "description": "Unauthorized - Authentication Required",
+        "content": {
+            "application/json": {
+                "examples": {
+                    "unauthorized": {
+                        "summary": "User Not Authenticated",
+                        "value": {
+                            "status": "failure",
+                        "message": "Invalid token or expired token",
+                            "status_code": 401,
+                            "error_code": "INVALID_TOKEN",
+                            "errors": {},
+                        },
+                    }
+                }
+            }
+        },
+    },
+    403: {
+        "description": "Forbidden - Missing Permission",
+        "content": {
+            "application/json": {
+                "examples": {
+                    "insufficient_permission": {
+                        "summary": "API Key Missing 'transfer' Permission",
+                        "value": {
+                            "status": "failure",
+                            "message": "Insufficient permissions for this operation",
+                            "status_code": 403,
+                            "error_code": "INSUFFICIENT_PERMISSION",
+                            "errors": {},
+                        },
+                    }
+                }
+            }
+        },
+    },
+    500: {
+        "description": "Internal Server Error",
+        "content": {
+            "application/json": {
+                "examples": {
+                    "server_error": {
+                        "summary": "Unexpected Error",
+                        "value": {
+                            "status": "failure",
+                            "message": "Internal server error",
+                            "status_code": 500,
+                            "error_code": "INTERNAL_SERVER_ERROR",
+                            "errors": {},
+                        },
+                    }
+                }
+            }
+        },
+    },
+}
+
+recover_transfer_custom_errors = ["400", "401", "403", "500"]
+recover_transfer_custom_success = {
+    "status_code": 200,
+    "description": "Transfer recovery attempted. Check 'recovered' field for result.",
+}

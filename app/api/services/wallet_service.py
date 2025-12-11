@@ -414,3 +414,114 @@ class WalletService:
             "reference": data["data"]["reference"],
         }
 
+    @staticmethod
+    def recover_failed_transfer(db: Session, transfer_reference: str) -> bool:
+        """
+        Recover a failed transfer by rolling back the debit and marking transactions as failed.
+
+        Args:
+            db (Session): Database session.
+            transfer_reference (str): Transfer reference to recover.
+
+        Returns:
+            bool: True if recovery was successful, False if no recovery needed.
+
+        Raises:
+            ValueError: If transfer reference is invalid or recovery fails.
+
+        Examples:
+            >>> success = WalletService.recover_failed_transfer(db, "TRF_123_abc")
+            >>> print(success)
+            True
+
+        Notes:
+            - Only recovers transfers where sender was debited but recipient wasn't credited.
+            - Marks both transactions as 'failed' and refunds sender.
+            - Idempotent: safe to call multiple times.
+        """
+        # Find the transfer_out transaction
+        transfer_out_txn = db.query(Transaction).filter(
+            Transaction.reference == transfer_reference,
+            Transaction.type == "transfer_out",
+            Transaction.status == "success"
+        ).first()
+
+        if not transfer_out_txn:
+            raise ValueError("Transfer reference not found or not in recoverable state")
+
+        # Check if there's a corresponding transfer_in transaction
+        transfer_in_reference = f"{transfer_reference}_IN"
+        transfer_in_txn = db.query(Transaction).filter(
+            Transaction.reference == transfer_in_reference,
+            Transaction.type == "transfer_in"
+        ).first()
+
+        # If transfer_in exists and is successful, this transfer completed successfully
+        if transfer_in_txn and transfer_in_txn.status == "success":
+            return False 
+
+        try:
+            # Get sender wallet and refund the amount
+            sender_wallet = transfer_out_txn.wallet
+            amount = transfer_out_txn.amount
+
+            # Refund sender
+            sender_wallet.balance += amount
+
+            # Mark transfer_out as failed
+            transfer_out_txn.status = "failed"
+            transfer_out_txn.extra_data["recovery_reason"] = "transfer_incomplete"
+
+            # If transfer_in exists but failed, update it too
+            if transfer_in_txn:
+                transfer_in_txn.status = "failed"
+                transfer_in_txn.extra_data["recovery_reason"] = "transfer_incomplete"
+
+            db.commit()
+            return True
+
+        except Exception as e:
+            db.rollback()
+            raise ValueError(f"Recovery failed: {str(e)}")
+
+    @staticmethod
+    def mark_stale_pending_transactions_as_failed(db: Session, timeout_minutes: int = 30) -> int:
+        """
+        Mark stale pending deposit transactions as failed after timeout.
+
+        Args:
+            db (Session): Database session.
+            timeout_minutes (int): Minutes after which pending transactions are considered stale.
+
+        Returns:
+            int: Number of transactions marked as failed.
+
+        Examples:
+            >>> count = WalletService.mark_stale_pending_transactions_as_failed(db, timeout_minutes=60)
+            >>> print(f"Marked {count} transactions as failed")
+
+        Notes:
+            - Only affects 'pending' deposit transactions older than timeout.
+            - Should be run periodically (e.g., every 5-10 minutes).
+        """
+        from datetime import datetime, timedelta
+
+        cutoff_time = datetime.utcnow() - timedelta(minutes=timeout_minutes)
+
+        stale_transactions = db.query(Transaction).filter(
+            Transaction.status == "pending",
+            Transaction.type == "deposit",
+            Transaction.created_at < cutoff_time
+        ).all()
+
+        updated_count = 0
+        for txn in stale_transactions:
+            txn.status = "failed"
+            txn.extra_data["failure_reason"] = "timeout"
+            updated_count += 1
+
+        if updated_count > 0:
+            db.commit()
+
+        return updated_count
+

@@ -7,11 +7,14 @@ A comprehensive backend wallet service built with FastAPI, featuring Google OAut
 ✅ **Google OAuth Authentication** - Secure user sign-in with JWT tokens  
 ✅ **Wallet System** - Individual wallets with unique 13-digit numbers  
 ✅ **Paystack Deposits** - Integrate payments via Paystack  
-✅ **Wallet Transfers** - Send money between users  
+✅ **Wallet Transfers** - Send money between users with atomic operations  
 ✅ **API Key Management** - Create service-to-service authentication keys with permissions  
 ✅ **Transaction History** - Track all wallet activities  
 ✅ **Webhook Handling** - Secure Paystack webhook verification  
 ✅ **Permission System** - Granular control over API key capabilities  
+✅ **Financial Safeguards** - Automatic recovery of failed transfers and timeout handling  
+✅ **Background Tasks** - Continuous monitoring and cleanup of system health  
+✅ **Idempotent Operations** - Prevent duplicate transfers and deposits  
 
 ## Architecture
 
@@ -25,6 +28,7 @@ wallet_service_system/
 │       ├── schemas/        # Pydantic request/response models
 │       ├── services/       # Business logic layer
 │       └── utils/          # Helper functions & middleware
+│           └── background_tasks.py  # Periodic maintenance tasks
 ├── alembic/                # Database migrations
 ├── main.py                 # Application entry point
 └── .env                    # Environment configuration
@@ -344,9 +348,12 @@ x-api-key: {api_key}  # Must have 'transfer' permission
 ```json
 {
   "wallet_number": "9876543210123",
-  "amount": 3000.00
+  "amount": 3000.00,
+  "idempotency_key": "optional-unique-key"
 }
 ```
+
+*Note: `idempotency_key` is optional but recommended to prevent duplicate transfers.*
 
 **Response:**
 ```json
@@ -363,6 +370,36 @@ x-api-key: {api_key}  # Must have 'transfer' permission
   }
 }
 ```
+
+#### Recover Failed Transfer
+```http
+POST /api/v1/wallet/transfer/recover
+Authorization: Bearer {jwt_token}
+OR
+x-api-key: {api_key}  # Must have 'transfer' permission
+```
+
+**Request:**
+```json
+{
+  "reference": "TRF_1234567890_xyz"
+}
+```
+
+**Response:**
+```json
+{
+  "status": "SUCCESS",
+  "status_code": 200,
+  "message": "Transfer recovered successfully",
+  "data": {
+    "recovered": true,
+    "reference": "TRF_1234567890_xyz"
+  }
+}
+```
+
+Recovers failed transfers where sender was debited but recipient wasn't credited. Automatically refunds sender and marks transactions as failed.
 
 #### Transaction History
 ```http
@@ -386,7 +423,7 @@ x-api-key: {api_key}  # Must have 'read' permission
         "amount": "5000.00",
         "status": "success",
         "reference": "DEP_123",
-        "metadata": {},
+        "extra_data": {},
         "created_at": "2025-01-09T12:00:00Z"
       },
       {
@@ -395,7 +432,7 @@ x-api-key: {api_key}  # Must have 'read' permission
         "amount": "3000.00",
         "status": "success",
         "reference": "TRF_456",
-        "metadata": {"recipient_wallet": "9876543210123"},
+        "extra_data": {"recipient_wallet": "9876543210123"},
         "created_at": "2025-01-09T13:00:00Z"
       }
     ],
@@ -435,6 +472,33 @@ x-api-key: sk_live_abc123xyz789...
 ✅ **Rate Limiting** - Maximum 5 active keys per user  
 ✅ **Atomic Transactions** - Transfers succeed or fail completely  
 ✅ **Idempotent Webhooks** - Prevents double-crediting  
+✅ **Automatic Recovery** - Failed transfers are automatically detected and recovered  
+✅ **Timeout Handling** - Stale pending transactions are cleaned up  
+✅ **Idempotent Transfers** - Prevents duplicate transfer operations  
+✅ **Background Monitoring** - Continuous system health checks and maintenance  
+
+## Financial Safeguards & Recovery
+
+### Automatic Recovery System
+The wallet service includes robust mechanisms to prevent fund loss and handle edge cases:
+
+- **Failed Transfer Recovery**: Automatically detects transfers where sender was debited but recipient wasn't credited, then refunds the sender
+- **Timeout Handling**: Pending deposit transactions older than 30 minutes are automatically marked as failed
+- **Background Tasks**: Continuous monitoring runs every 5-10 minutes to maintain system health
+- **Atomic Operations**: All transfers use database transactions to ensure consistency
+
+### Background Tasks
+The system runs automated maintenance tasks:
+
+- **Stale Transaction Cleanup**: Removes stuck pending transactions
+- **Failed Transfer Detection**: Identifies and recovers incomplete transfers  
+- **System Health Monitoring**: Ensures database consistency and transaction integrity
+
+### Critical Safety Features
+- **Zero Fund Loss**: No scenario allows permanent loss of user funds
+- **Duplicate Prevention**: Idempotency keys prevent double-charging
+- **Rollback Protection**: Failed operations are automatically reversed
+- **Audit Trails**: All recovery actions are logged for transparency
 
 ## Testing
 
@@ -520,7 +584,8 @@ app/api/
     ├── auth_middleware.py      # JWT & API key authentication
     ├── security.py             # Hashing, JWT, signature verification
     ├── response_payload.py     # Standard response helpers
-    └── exception_handlers.py   # Global error handling
+    ├── exception_handlers.py   # Global error handling
+    └── background_tasks.py     # Periodic maintenance and recovery tasks
 ```
 
 ## License

@@ -20,6 +20,8 @@ from app.api.utils.exception_handlers import (
 from contextlib import asynccontextmanager
 from app.api.core.database import engine
 from app.api.models import Base
+from app.api.utils.background_tasks import start_background_tasks
+import asyncio
 import logging
 
 try:
@@ -65,7 +67,18 @@ logger.info(
 async def lifespan(app: FastAPI):
     # Create tables synchronously
     Base.metadata.create_all(engine)
+
+    # Start background tasks
+    background_task = asyncio.create_task(start_background_tasks())
+
     yield
+
+    # Cancel background tasks on shutdown
+    background_task.cancel()
+    try:
+        await background_task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(
