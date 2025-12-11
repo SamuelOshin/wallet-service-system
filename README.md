@@ -16,7 +16,15 @@ A comprehensive backend wallet service built with FastAPI, featuring Google OAut
 ✅ **Background Tasks** - Continuous monitoring and cleanup of system health  
 ✅ **Idempotent Operations** - Prevent duplicate transfers and deposits  
 
-## Architecture
+## System Architecture
+
+### Complete System Diagram
+
+![Wallet Service Architecture Diagram](static/img/image.png)
+
+
+
+### Key Components
 
 ```
 wallet_service_system/
@@ -33,6 +41,63 @@ wallet_service_system/
 ├── main.py                 # Application entry point
 └── .env                    # Environment configuration
 ```
+
+### Architecture Layers
+
+**1. External Services Layer**
+- Google OAuth 2.0 (Authentication)
+- Paystack API (Payments)
+
+**2. API Gateway (FastAPI)**
+- Authentication Routes (Google Sign-in)
+- Wallet Routes (Deposits, Transfers, History)
+- API Key Routes (Management & Permissions)
+
+**3. Service Layer**
+- GoogleAuthService (OAuth handling)
+- WalletService (Business logic)
+- APIKeyService (Key management)
+
+**4. Data Layer (PostgreSQL)**
+- Users (Authentication & profiles)
+- Wallets (Account balances)
+- Transactions (Audit trail)
+- APIKeys (Service authentication)
+- IdempotencyKeys (Duplicate prevention)
+
+**5. Background Tasks (AsyncIO)**
+- Stale Transaction Cleanup (every 5 minutes)
+- Failed Transfer Recovery (every 10 minutes)
+
+### Data Flow
+
+**Deposit Process:**
+```
+User → Deposit Endpoint → Paystack Payment URL
+→ User Completes Payment → Paystack Webhook → Verify Signature
+→ Process Successful Deposit → Credit Wallet → Log Transaction
+```
+
+**Transfer Process:**
+```
+User → Transfer Endpoint → Validate Idempotency → Lock Wallet (SELECT FOR UPDATE)
+→ Debit Sender → Credit Recipient → Create Transactions → Commit (All or Nothing)
+```
+
+**Recovery Process (Background):**
+```
+Recovery Task (every 10 min) → Find Incomplete Transfers
+→ Check for Failed transfer_in → Refund Sender → Mark as Failed → Log Recovery
+```
+
+### Security Architecture
+
+- **Authentication**: JWT tokens + API keys with SHA-256 hashing
+- **Authorization**: Role-based permissions for API keys
+- **Data Protection**: Paystack signature verification on webhooks
+- **Transaction Safety**: Atomic database operations with rollback
+- **Duplicate Prevention**: Idempotency keys for all state-changing operations
+- **Financial Safeguards**: Background recovery tasks for failed operations
 
 ## Tech Stack
 
