@@ -28,7 +28,6 @@ ENV/
 .env
 
 # VSCode
-.vscode/
 .history/
 *.code-workspace
 
@@ -116,3 +115,4 @@ DOCKER_README.md
 postgres_data/
 minio_data/
 redis_data/
+.gitignore
